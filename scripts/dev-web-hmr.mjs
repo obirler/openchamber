@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,9 +82,42 @@ async function stopChildTree(child) {
   }
 }
 
-const uiPort = process.env.OPENCHAMBER_HMR_UI_PORT || '5180';
-const backendPort = process.env.OPENCHAMBER_HMR_API_PORT || '3902';
+const preferredUiPort = Number(process.env.OPENCHAMBER_HMR_UI_PORT || '5180');
+const preferredBackendPort = Number(process.env.OPENCHAMBER_HMR_API_PORT || '3902');
 const hmrHost = process.env.OPENCHAMBER_HMR_HOST || '127.0.0.1';
+const backendHost = process.env.OPENCHAMBER_HOST || '127.0.0.1';
+
+function isValidPort(port) {
+  return Number.isInteger(port) && port > 0 && port <= 65535;
+}
+
+function isPortAvailable(port, host) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, host);
+  });
+}
+
+async function findAvailablePort(preferredPort, host, label) {
+  if (!isValidPort(preferredPort)) {
+    throw new Error(`${label} port must be an integer between 1 and 65535.`);
+  }
+
+  for (let port = preferredPort; port < preferredPort + 50 && port <= 65535; port += 1) {
+    if (await isPortAvailable(port, host)) {
+      if (port !== preferredPort) {
+        console.warn(`[dev:web:hmr] ${label} port ${preferredPort} is unavailable, using ${port} instead.`);
+      }
+      return String(port);
+    }
+  }
+
+  throw new Error(`No available ${label} port found near ${preferredPort}.`);
+}
 
 function getLanAddresses() {
   const addresses = [];
@@ -110,37 +144,9 @@ function clearViteCache() {
   }
 }
 
-clearViteCache();
-
-const api = run('api', 'bun', ['run', '--cwd', 'packages/web', 'dev:server:watch'], {
-  OPENCHAMBER_PORT: backendPort,
-});
-const vite = run(
-  'vite',
-  'bun',
-  ['x', 'vite', '--force', '--host', hmrHost, '--port', uiPort, '--strictPort'],
-  {
-    OPENCHAMBER_PORT: backendPort,
-    OPENCHAMBER_DISABLE_PWA_DEV: '1',
-  },
-  { cwd: webRoot },
-);
-
-console.log(`[dev:web:hmr] UI with HMR: http://127.0.0.1:${uiPort}`);
-if (hmrHost === '0.0.0.0' || hmrHost === '::') {
-  const lanAddresses = getLanAddresses();
-  if (lanAddresses.length > 0) {
-    for (const address of lanAddresses) {
-      console.log(`[dev:web:hmr] LAN/mobile UI: http://${address}:${uiPort}`);
-    }
-  } else {
-    console.log('[dev:web:hmr] LAN/mobile UI: no LAN IPv4 address found');
-  }
-}
-console.log(`[dev:web:hmr] API: http://127.0.0.1:${backendPort}`);
-console.log('[dev:web:hmr] IMPORTANT: open UI URL above for HMR; backend URL has no HMR');
-
 let shuttingDown = false;
+let api = null;
+let vite = null;
 
 async function shutdown(exitCode = 0) {
   if (shuttingDown) return;
@@ -163,9 +169,6 @@ function onChildExit(label) {
   };
 }
 
-api.on('exit', onChildExit('api'));
-vite.on('exit', onChildExit('vite'));
-
 process.on('SIGINT', () => {
   shutdown(130).catch(() => process.exit(130));
 });
@@ -174,4 +177,47 @@ process.on('SIGTERM', () => {
 });
 process.on('SIGHUP', () => {
   shutdown(129).catch(() => process.exit(129));
+});
+
+async function main() {
+  clearViteCache();
+
+  const backendPort = await findAvailablePort(preferredBackendPort, backendHost, 'API');
+  const uiPort = await findAvailablePort(preferredUiPort, hmrHost, 'UI');
+
+  api = run('api', 'bun', ['x', 'nodemon', '--watch', 'server', '--ext', 'js', '--exec', `bun server/index.js --port ${backendPort}`], {
+    OPENCHAMBER_PORT: backendPort,
+  }, { cwd: webRoot });
+  vite = run(
+    'vite',
+    'bun',
+    ['x', 'vite', '--force', '--host', hmrHost, '--port', uiPort, '--strictPort'],
+    {
+      OPENCHAMBER_PORT: backendPort,
+      OPENCHAMBER_DISABLE_PWA_DEV: '1',
+    },
+    { cwd: webRoot },
+  );
+
+  console.log(`[dev:web:hmr] UI with HMR: http://127.0.0.1:${uiPort}`);
+  if (hmrHost === '0.0.0.0' || hmrHost === '::') {
+    const lanAddresses = getLanAddresses();
+    if (lanAddresses.length > 0) {
+      for (const address of lanAddresses) {
+        console.log(`[dev:web:hmr] LAN/mobile UI: http://${address}:${uiPort}`);
+      }
+    } else {
+      console.log('[dev:web:hmr] LAN/mobile UI: no LAN IPv4 address found');
+    }
+  }
+  console.log(`[dev:web:hmr] API: http://127.0.0.1:${backendPort}`);
+  console.log('[dev:web:hmr] IMPORTANT: open UI URL above for HMR; backend URL has no HMR');
+
+  api.on('exit', onChildExit('api'));
+  vite.on('exit', onChildExit('vite'));
+}
+
+main().catch((error) => {
+  console.error(`[dev:web:hmr] ${error.message}`);
+  process.exit(1);
 });
