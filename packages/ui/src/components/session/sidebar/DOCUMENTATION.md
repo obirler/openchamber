@@ -9,6 +9,7 @@
 - Active/hover row styling is text-first; selected sessions use primary text instead of background fills.
 - Archived groups are collapsed by default and support bulk deletion at group/folder level.
 - Session rows support compact inline dates in minimal mode and simplified metadata in default mode.
+- Nested subagent rows use depth-aware indentation at any depth, and selecting a nested subagent auto-expands its full ancestor chain in both project and recent contexts.
 - New extractions in latest pass reduced local effect/callback bulk further:
   - project session list builders
   - folder cleanup sync
@@ -49,4 +50,4 @@
 
 - `types.ts`: Shared sidebar types (`SessionNode`, `SessionGroup`, summary/search metadata).
 - `activitySections.ts`: Persisted top-section storage/helpers for the current `recent` session list.
-- `utils.tsx`: Shared sidebar utilities (path normalization, sorting, dedupe, archived scope keys, project relation checks, text highlight, labels, compact/default date formatting).
+- `utils.tsx`: Shared sidebar utilities (path normalization, tree-indent/ancestor helpers, sorting, dedupe, archived scope keys, project relation checks, text highlight, labels, compact/default date formatting).

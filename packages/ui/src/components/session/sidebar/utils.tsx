@@ -2,7 +2,7 @@ import React from 'react';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { getCurrentIntlLocale } from '@/lib/i18n';
 import { formatMessage, useI18nStore } from '@/lib/i18n/store';
-import type { SessionSummaryMeta } from './types';
+import type { SessionNode, SessionSummaryMeta } from './types';
 
 const t = (key: Parameters<typeof formatMessage>[1], params?: Parameters<typeof formatMessage>[2]) =>
   formatMessage(useI18nStore.getState().dictionary, key, params);
@@ -84,6 +84,66 @@ export const normalizePath = (value?: string | null) => {
   }
   const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '');
   return normalized.length === 0 ? '/' : normalized;
+};
+
+const SESSION_TREE_BASE_LEFT_PADDING_PX = 6;
+const SESSION_TREE_CHILD_INDENT_STEP_PX = 14;
+
+const getSessionExpansionKey = (
+  sessionId: string,
+  renderContext: 'project' | 'recent',
+  archivedBucket: boolean,
+): string => `${renderContext}:${archivedBucket ? 'archived' : 'active'}:${sessionId}`;
+
+export const getSessionTreeIndentPx = (depth: number): number => {
+  return SESSION_TREE_BASE_LEFT_PADDING_PX + Math.max(0, depth) * SESSION_TREE_CHILD_INDENT_STEP_PX;
+};
+
+export const getSessionParentId = (session?: Session | null): string | null => {
+  return (session as Session & { parentID?: string | null } | null | undefined)?.parentID ?? null;
+};
+
+export const collectSessionAncestorIds = (
+  sessionId: string | null | undefined,
+  sessions: Session[],
+): string[] => {
+  if (!sessionId) {
+    return [];
+  }
+
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+  const ancestorIds: string[] = [];
+  const visited = new Set<string>([sessionId]);
+
+  let currentSessionId: string | null = sessionId;
+  while (currentSessionId) {
+    const parentId = getSessionParentId(sessionsById.get(currentSessionId));
+    if (!parentId || visited.has(parentId)) {
+      break;
+    }
+
+    ancestorIds.push(parentId);
+    visited.add(parentId);
+    currentSessionId = parentId;
+  }
+
+  return ancestorIds;
+};
+
+export const treeHasExpansionStateChange = (
+  node: SessionNode,
+  previousExpandedParents: Set<string>,
+  nextExpandedParents: Set<string>,
+  renderContext: 'project' | 'recent',
+  archivedBucket: boolean,
+): boolean => {
+  const expansionKey = getSessionExpansionKey(node.session.id, renderContext, archivedBucket);
+  if (previousExpandedParents.has(expansionKey) !== nextExpandedParents.has(expansionKey)) {
+    return true;
+  }
+
+  return node.children.some((child) =>
+    treeHasExpansionStateChange(child, previousExpandedParents, nextExpandedParents, renderContext, archivedBucket));
 };
 
 export const isPathWithinProject = (directory?: string | null, projectPath?: string | null): boolean => {

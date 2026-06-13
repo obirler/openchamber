@@ -26,7 +26,15 @@ import { useSync } from '@/sync/use-sync';
 import { useViewportStore, viewportSessionKey } from '@/sync/viewport-store';
 import { DraggableSessionRow } from './sessionFolderDnd';
 import type { SessionNode, SessionSummaryMeta } from './types';
-import { formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath, renderHighlightedText, resolveSessionDiffStats } from './utils';
+import {
+  formatSessionCompactDateLabel,
+  formatSessionDateLabel,
+  getSessionTreeIndentPx,
+  normalizePath,
+  renderHighlightedText,
+  resolveSessionDiffStats,
+  treeHasExpansionStateChange,
+} from './utils';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
@@ -154,6 +162,9 @@ const areEqual = (prev: Props, next: Props): boolean => {
   if (prev.groupDirectory !== next.groupDirectory) return false;
   if (prev.projectId !== next.projectId) return false;
   if (prev.archivedBucket !== next.archivedBucket) return false;
+  const prevRenderContext = prev.renderContext ?? 'project';
+  const nextRenderContext = next.renderContext ?? 'project';
+  if (prevRenderContext !== nextRenderContext) return false;
   if (prev.currentSessionId !== next.currentSessionId) {
     const prevActiveInTree = treeContainsSessionId(prev.node, prev.currentSessionId);
     const nextActiveInTree = treeContainsSessionId(next.node, next.currentSessionId);
@@ -162,18 +173,16 @@ const areEqual = (prev: Props, next: Props): boolean => {
     }
   }
   if (prev.pinnedSessionIds.has(prevSessionId) !== next.pinnedSessionIds.has(nextSessionId)) return false;
-  // Expansion is keyed per render context, so compare the composite key
-  // matching the one isExpanded reads from in render. If a session appears
-  // in two contexts (project + recent), they have independent state.
-  {
-    const prevRenderContext = prev.renderContext ?? 'project';
-    const nextRenderContext = next.renderContext ?? 'project';
-    const prevArchived = prev.archivedBucket ?? false;
-    const nextArchived = next.archivedBucket ?? false;
-    const prevExpansionKey = `${prevRenderContext}:${prevArchived ? 'archived' : 'active'}:${prevSessionId}`;
-    const nextExpansionKey = `${nextRenderContext}:${nextArchived ? 'archived' : 'active'}:${nextSessionId}`;
-    if (prev.expandedParents.has(prevExpansionKey) !== next.expandedParents.has(nextExpansionKey)) return false;
-  }
+  if (
+    prev.expandedParents !== next.expandedParents
+    && treeHasExpansionStateChange(
+      prev.node,
+      prev.expandedParents,
+      next.expandedParents,
+      prevRenderContext,
+      prev.archivedBucket ?? false,
+    )
+  ) return false;
   if (prev.hasSessionSearchQuery !== next.hasSessionSearchQuery) return false;
   if (prev.normalizedSessionSearchQuery !== next.normalizedSessionSearchQuery) return false;
   if (prev.notifyOnSubtasks !== next.notifyOnSubtasks) return false;
@@ -208,7 +217,6 @@ const areEqual = (prev: Props, next: Props): boolean => {
   if ((prev.secondaryMeta?.branchLabel ?? null) !== (next.secondaryMeta?.branchLabel ?? null)) return false;
   if (prev.mobileVariant !== next.mobileVariant) return false;
   if (prev.alwaysShowActions !== next.alwaysShowActions) return false;
-  if ((prev.renderContext ?? 'project') !== (next.renderContext ?? 'project')) return false;
   if (prev.renamingFolderId !== next.renamingFolderId) return false;
 
   return true;
@@ -345,6 +353,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   // expand the other. Matches the format of menuInstanceKey.
   const expansionKey = menuInstanceKey;
   const isExpanded = hasSessionSearchQuery ? true : expandedParents.has(expansionKey);
+  const rowPaddingLeft = getSessionTreeIndentPx(depth);
   const isSubtaskSession = Boolean((resolvedSession as Session & { parentID?: string | null }).parentID);
   const unseenCount = useSessionUnseenCount(session.id);
   const needsAttention = unseenCount > 0 && (!isSubtaskSession || notifyOnSubtasks);
@@ -476,7 +485,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     return (
       <div
         key={session.id}
-        className={cn('group relative flex items-center rounded-sm px-1.5 py-1', depth > 0 && 'pl-[20px]')}
+        className="group relative flex items-center rounded-sm px-1.5 py-1"
+        style={{ paddingLeft: rowPaddingLeft }}
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0">
           <form
@@ -924,9 +934,9 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 className={cn(
                   'group relative my-0.5 flex items-center rounded-sm px-1.5 py-1',
                   isMissingDirectory ? 'opacity-75' : '',
-                  depth > 0 && 'pl-[20px]',
                   isRowSelected && 'bg-primary/15',
                 )}
+                style={{ paddingLeft: rowPaddingLeft }}
               />
             }
           >

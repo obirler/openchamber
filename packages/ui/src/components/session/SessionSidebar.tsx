@@ -66,6 +66,7 @@ import {
 import { useActiveNowStore } from '@/stores/useActiveNowStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
+  collectSessionAncestorIds,
   compareSessionsByPinnedAndTime,
   formatProjectLabel,
   normalizePath,
@@ -645,21 +646,19 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     sessionEvents.requestDirectoryDialog();
   }, []);
 
-  // Auto-expand parent session when navigating to a subagent (child) session.
-  // We don't know which render context the user will look at the parent in
-  // (Recent, project root, archived bucket, ...), so fan out across all
-  // four combinations to ensure it's expanded wherever it appears.
+  // Auto-expand the full ancestor chain when navigating to a nested subagent.
+  // We do not know which render context the user will look at the ancestors
+  // in (Recent, project root, archived bucket, ...), so fan out across all
+  // four combinations to ensure the whole path is visible wherever it appears.
   React.useEffect(() => {
-    if (!currentSessionId) return;
-    const current = sessions.find((s) => s.id === currentSessionId);
-    const parentID = (current as Session & { parentID?: string | null })?.parentID;
-    if (!parentID) return;
-    const keysToAdd = [
-      `project:active:${parentID}`,
-      `project:archived:${parentID}`,
-      `recent:active:${parentID}`,
-      `recent:archived:${parentID}`,
-    ];
+    const ancestorIds = collectSessionAncestorIds(currentSessionId, sessions);
+    if (ancestorIds.length === 0) return;
+    const keysToAdd = ancestorIds.flatMap((ancestorId) => ([
+      `project:active:${ancestorId}`,
+      `project:archived:${ancestorId}`,
+      `recent:active:${ancestorId}`,
+      `recent:archived:${ancestorId}`,
+    ]));
     setExpandedParents((prev) => {
       if (keysToAdd.every((k) => prev.has(k))) return prev;
       const next = new Set(prev);
