@@ -34,6 +34,7 @@ local-dev*
 .opencode/plans/*
 .hive
 docs/personal/*
+SECURITY_HARDENING_IMPLEMENTATION_PLAN.md
 
 # Build outputs
 build/
@@ -63,3 +64,5 @@ data/
 workspaces/
 *.pid
 .worktrees/
+# CocoIndex Code (ccc)
+/.cocoindex_code/

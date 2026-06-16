@@ -673,7 +673,12 @@ async function spawnManagedOpenCodeServer(
 
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`Timeout waiting for server to start after ${timeoutMs}ms`));
+      // Surface whatever OpenCode printed while we waited — otherwise a hung or
+      // misconfigured start is indistinguishable from a slow one in the status
+      // report, leaving no thread to pull on.
+      const trimmedOutput = output.trim();
+      const outputHint = trimmedOutput ? ` Output: ${trimmedOutput}` : ' Output: (none — process printed nothing)';
+      reject(new Error(`Timeout waiting for server to start after ${timeoutMs}ms.${outputHint}`));
     }, timeoutMs);
 
     child.stdout?.on('data', onStdout);
@@ -718,8 +723,7 @@ async function allocateManagedOpenCodePort(): Promise<number> {
   });
 }
 
-export function createOpenCodeManager(_context: vscode.ExtensionContext): OpenCodeManager {
-  void _context;
+export function createOpenCodeManager(context: vscode.ExtensionContext): OpenCodeManager {
   let server: { url: string; close: () => void } | null = null;
   let managedApiUrlOverride: string | null = null;
   let managedPassword: string | null = null;
@@ -733,7 +737,7 @@ export function createOpenCodeManager(_context: vscode.ExtensionContext): OpenCo
   const listeners = new Set<(status: ConnectionStatus, error?: string) => void>();
   const workspaceDirectory = (): string =>
     normalizeWindowsDriveLetter(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir());
-  const serverWorkingDirectory = (): string => normalizeWindowsDriveLetter(os.homedir());
+  const serverWorkingDirectory = (): string => normalizeWindowsDriveLetter(context.globalStorageUri.fsPath);
   let workingDirectory: string = workspaceDirectory();
   let startCount = 0;
   let restartCount = 0;
@@ -897,6 +901,7 @@ export function createOpenCodeManager(_context: vscode.ExtensionContext): OpenCo
       const serverCwd = serverWorkingDirectory();
       const originalCwd = process.cwd();
       try {
+        fs.mkdirSync(serverCwd, { recursive: true });
         process.chdir(serverCwd);
         const port = await allocateManagedOpenCodePort();
         server = await spawnManagedOpenCodeServer(serverCwd, port, READY_CHECK_TIMEOUT_MS);
