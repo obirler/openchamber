@@ -416,6 +416,33 @@ const writeRuntimeSessionMemory = (key: string, patch: Partial<RuntimeSessionMem
 // ---------------------------------------------------------------------------
 const WORKTREE_MAP_STORAGE_KEY = 'oc.worktreeMap'
 
+const WORKTREE_METADATA_STORAGE_KEY = 'oc.worktreeMetadata'
+
+const loadPersistedWorktreeMetadataMap = (): Map<string, WorktreeMetadata> => {
+  try {
+    const raw = getSafeStorage().getItem(WORKTREE_METADATA_STORAGE_KEY)
+    if (!raw) return new Map()
+    const entries = JSON.parse(raw) as Array<[string, WorktreeMetadata]>
+    if (!Array.isArray(entries)) return new Map()
+    return new Map(
+      entries.filter((entry) => Array.isArray(entry) && typeof entry[0] === 'string' && entry[1] && typeof entry[1] === 'object'),
+    )
+  } catch {
+    return new Map()
+  }
+}
+
+const persistWorktreeMetadataMap = (map: Map<string, WorktreeMetadata>): void => {
+  try {
+    getSafeStorage().setItem(WORKTREE_METADATA_STORAGE_KEY, JSON.stringify([...map.entries()]))
+  } catch {
+    // quota / serialization error — ignore; in-memory state remains available at runtime
+  }
+}
+
+const PERSISTED_WORKTREE_METADATA = loadPersistedWorktreeMetadataMap()
+
+
 const loadPersistedWorktreeMap = (): Map<string, WorktreeMetadata[]> => {
   try {
     const raw = getSafeStorage().getItem(WORKTREE_MAP_STORAGE_KEY)
@@ -453,7 +480,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   abortPromptSessionId: null,
   abortPromptExpiresAt: null,
   error: null,
-  worktreeMetadata: new Map(),
+  worktreeMetadata: PERSISTED_WORKTREE_METADATA,
   availableWorktrees: flattenWorktreeMap(PERSISTED_WORKTREE_MAP),
   availableWorktreesByProject: PERSISTED_WORKTREE_MAP,
   webUICreatedSessions: new Set(),
@@ -1486,5 +1513,8 @@ setSessionOpener((sessionID, directory) => {
 useSessionUIStore.subscribe((state, prev) => {
   if (state.availableWorktreesByProject !== prev.availableWorktreesByProject) {
     persistWorktreeMap(state.availableWorktreesByProject)
+  }
+  if (state.worktreeMetadata !== prev.worktreeMetadata) {
+    persistWorktreeMetadataMap(state.worktreeMetadata)
   }
 })

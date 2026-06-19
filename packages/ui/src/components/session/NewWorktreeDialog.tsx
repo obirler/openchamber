@@ -868,6 +868,7 @@ export function NewWorktreeDialog({
         }
 
         createdSessionId = session.id;
+        useSessionUIStore.getState().setWorktreeMetadata(session.id, metadata);
         onWorktreeCreated?.(metadata.path, { sessionId: createdSessionId });
         onOpenChange(false);
         setIsCreating(false);
