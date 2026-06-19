@@ -442,6 +442,12 @@ export const ProjectActionsButton = ({
       return;
     }
 
+    const projectForActions = stableProjectRef;
+    if (!projectForActions) {
+      toast.error(t('projectActions.error.noActiveDirectoryForAction'));
+      return;
+    }
+
     const runKey = toProjectActionRunKey(normalizedDirectory, action.id);
     const existingRun = projectActionRuns[runKey];
     if (existingRun && existingRun.status === 'running') {
@@ -452,7 +458,7 @@ export const ProjectActionsButton = ({
       const discovered = action.id === AUTO_DISCOVER_ACTION_ID
         ? await (async (): Promise<OpenChamberProjectAction> => {
           const [actionsState, scripts] = await Promise.all([
-            getProjectActionsState({ id: stableProjectRef?.id ?? '', path: normalizedDirectory }),
+            getProjectActionsState(projectForActions),
             readPackageJsonScripts(normalizedDirectory),
           ]);
           const devServer = await detectDevServerCommand(normalizedDirectory, actionsState.actions, scripts);
@@ -599,7 +605,7 @@ export const ProjectActionsButton = ({
     setProjectActionRun,
     setTabPreviewUrl,
     setTabSessionId,
-    stableProjectRef?.id,
+    stableProjectRef,
     t,
     terminal,
   ]);
